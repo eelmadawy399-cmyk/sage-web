@@ -1,5 +1,5 @@
 // SAGE Egypt - Authentication Module
-// Uses modern Google Identity Services (GIS) + Earth Engine
+// Supports both direct User login and Service Account (Vercel API)
 
 var tokenClient;
 
@@ -12,37 +12,31 @@ function hideLoading() {
     document.getElementById('loadingOverlay').classList.add('hidden');
 }
 
-function initAuthClient() {
+/**
+ * Automate EE initialization using a Token from our Vercel API
+ */
+async function autoLogin() {
+    showLoading('جاري تهيئة الدخول... (Service Account)');
     try {
-        tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: CONFIG.CLIENT_ID,
-            scope: CONFIG.SCOPES.join(' '),
-            callback: function (response) {
-                if (response.error) {
-                    hideLoading();
-                    console.error('Auth error:', response);
-                    if (response.error === 'popup_closed_by_user') {
-                        alert('تم إغلاق نافذة تسجيل الدخول.\nPlease try again and complete the login.');
-                    } else {
-                        alert('خطأ في تسجيل الدخول: ' + response.error + '\n' + (response.error_description || ''));
-                    }
-                    return;
-                }
+        const response = await fetch('/api/token');
+        const data = await response.json();
 
-                // Set token in EE
-                showLoading('جاري تهيئة Earth Engine...');
-                console.log('✅ Got access token, initializing EE...');
+        if (data.error) {
+            console.warn('API Token fetch failed:', data.error);
+            hideLoading();
+            // Fallback to manual login if needed
+            return;
+        }
 
-                ee.data.setAuthToken(
-                    null,
-                    'Bearer',
-                    response.access_token,
-                    3600,
-                    [],
-                    null,
-                    false
-                );
+        console.log('✅ Got Service Account token, initializing EE...');
 
+        ee.data.setAuthToken(
+            null,
+            'Bearer',
+            data.token,
+            3600,
+            [],
+            function () {
                 ee.initialize(
                     null,
                     null,
@@ -56,78 +50,54 @@ function initAuthClient() {
                         alert('خطأ في تهيئة Earth Engine:\n' + err);
                     },
                     null,
-                    CONFIG.PROJECT_ID
+                    data.project_id || CONFIG.PROJECT_ID
                 );
             },
-            error_callback: function (err) {
-                // This handles popup blocked / popup closed errors
-                hideLoading();
-                console.error('Token client error:', err);
-                if (err.type === 'popup_failed_to_open') {
-                    alert('⚠️ المتصفح حجب النافذة المنبثقة!\n\nالحل: اسمح بالنوافذ المنبثقة (Popups) لهذا الموقع من شريط العنوان.\n\nAllow popups for this site and try again.');
-                } else if (err.type === 'popup_closed') {
-                    alert('تم إغلاق نافذة تسجيل الدخول. جرب مرة أخرى.');
-                } else {
-                    alert('خطأ: ' + (err.message || err.type || JSON.stringify(err)));
+            false
+        );
+    } catch (e) {
+        console.error('Auto login error:', e);
+        hideLoading();
+    }
+}
+
+function initAuthClient() {
+    try {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: CONFIG.CLIENT_ID,
+            scope: CONFIG.SCOPES.join(' '),
+            callback: function (response) {
+                if (response.error) {
+                    hideLoading();
+                    console.error('Auth error:', response);
+                    return;
                 }
+
+                showLoading('جاري تهيئة Earth Engine...');
+                ee.data.setAuthToken(null, 'Bearer', response.access_token, 3600, [], null, false);
+                ee.initialize(null, null, () => { hideLoading(); onAuthSuccess(); }, (err) => { alert(err); }, null, CONFIG.PROJECT_ID);
             }
         });
-        console.log('✅ Token client initialized');
     } catch (e) {
-        console.error('Failed to init token client:', e);
-        alert('خطأ في تهيئة Google Identity Services:\n' + e.message);
+        console.warn('GIS Client init skipped (might be using AutoLogin)');
     }
 }
 
 function startAuth() {
-    if (!tokenClient) {
-        alert('Google Identity Services لم يتم تحميله بعد. أعد تحميل الصفحة.');
-        return;
-    }
     showLoading('جاري تسجيل الدخول...');
-
-    // Safety timeout: hide loading after 30 seconds if nothing happens
-    window._authTimeout = setTimeout(function () {
-        hideLoading();
-        console.warn('Auth timeout - popup may have been blocked or COOP policy mismatch.');
-        alert('⚠️ استغرق تسجيل الدخول وقتاً طويلاً.\nقد يكون المتصفح حجب النافذة أو هناك مشكلة في الاتصال. تأكد من السماح بالنوافذ المنبثقة (Popups).');
-    }, 30000);
-
-    try {
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-    } catch (e) {
-        hideLoading();
-        console.error('requestAccessToken error:', e);
-        alert('خطأ في فتح نافذة تسجيل الدخول:\n' + e.message);
-    }
+    // Attempt Auto-Login first
+    autoLogin();
 }
 
 function onAuthSuccess() {
-    clearTimeout(window._authTimeout);
     document.getElementById('loginScreen').classList.add('hidden');
     document.getElementById('appContainer').classList.remove('hidden');
-
     initMap();
     showWelcome();
-
-    console.log('✅ SAGE Egypt initialized successfully!');
 }
 
-// Initialize GIS client when the library loads
+// Check for auto-login on startup
 window.addEventListener('load', function () {
-    setTimeout(function () {
-        if (typeof google !== 'undefined' && google.accounts && google.accounts.oauth2) {
-            initAuthClient();
-        } else {
-            console.warn('Waiting for Google Identity Services...');
-            setTimeout(function () {
-                if (typeof google !== 'undefined' && google.accounts) {
-                    initAuthClient();
-                } else {
-                    console.error('❌ Google Identity Services failed to load!');
-                    alert('فشل تحميل خدمة Google. تأكد من اتصالك بالإنترنت وأعد تحميل الصفحة.');
-                }
-            }, 2000);
-        }
-    }, 500);
+    // Try to auto-login immediately
+    setTimeout(autoLogin, 1000);
 });
