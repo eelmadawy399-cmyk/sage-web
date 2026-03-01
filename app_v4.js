@@ -913,7 +913,9 @@ function runFullAnalysis(farmArea, farmPoint, startDate, endDate, cropType, lat,
     reportTask.evaluate(function (result, error) {
         if (error) {
             console.error('Analysis Finalization Error:', error);
-            updateLoadingStatus('⚠️ عذراً، خطأ في التحليل النهائي.');
+            var detailedErr = error.toString();
+            if (detailedErr.length > 100) detailedErr = detailedErr.substring(0, 100) + '...';
+            updateLoadingStatus('⚠️ عذراً، خطأ في التحليل: ' + detailedErr);
             return;
         }
 
@@ -1561,36 +1563,10 @@ function renderFullReport(result, cropType, lat, lng, bufferSize, startDate, end
 
         if (isInvalidForCrop) {
             var reclId = 'reclamation-detail';
-
-            // --- DYNAMIC RECLAMATION LOGIC (Data-Driven) ---
-            var gypsumTons = 0;
-            if (olmPH > 8.2) gypsumTons = Math.round((olmPH - 8.2) * 5);
-            if (ecRealVal > 15) gypsumTons = Math.max(gypsumTons, 4);
-
-            var compostM3 = 0;
-            if (olmSOC < 1.0) compostM3 = 20;
-            else if (olmSOC < 1.5) compostM3 = 10;
-
-            var leachingSteps = '';
-            if (leach.reclamationM3 > 0) {
-                leachingSteps = '\n   - تنفيذ "رية غسيل" مستقلة بكمية ' + Math.round(leach.reclamationM3) + ' م³/فدان لخفض الملوحة.';
-            }
-
-            var reclamationHTML = '<div style="font-size:12px;white-space:pre-wrap;line-height:1.6;">' +
-                '1. **التسوية والتخطيط:** تسوية الليزر للأرض لضمان توزيع مياه الغسيل بانتظام.' +
-                '\n2. **شبكة الري والصرف:** إنشاء شبكة ري مع التأكد من جودة نظام الصرف.' +
-                '\n3. **الإضافات الكيميائية والعضوية:**' +
-                (gypsumTons > 0 ? '\n   - أضف ' + gypsumTons + ' طن/فدان جبس زراعي (لتحسين القلوية والنسيج).' : '') +
-                (compostM3 > 0 ? '\n   - أضف ' + compostM3 + ' م³ كمبوست نباتي (لرفع الكربون العضوي).' : '') +
-                '\n4. **عمليات الغسيل الاستصلاحي:**' +
-                leachingSteps +
-                '\n5. **الدورة الزراعية الاسترشادية:** يُنصح بالبدء بمحاصيل تتحمل الملوحة لموسم واحد ثم الانتقال للمحصول المستهدف.' +
-                '</div>';
-
             html += '<button class="btn btn-execute" style="width:100%;margin:10px 0;background-color:#795548;" onclick="toggleSection(\'' + reclId + '\')">🛠️ عرض خطة الاستصلاح الصحراوي</button>';
-            html += '<div id="' + reclId + '" style="display:none;margin-top:10px;background:#fdf5e6;padding:10px;border-radius:8px;border:1px solid #deb887;">' +
-                '<div style="font-weight:bold;margin-bottom:8px;color:#5D4037;">📋 خطة الاستصلاح (المستندة للبيانات):</div>' +
-                reclamationHTML +
+            html += '<div id="' + reclId + '" style="display:none;margin-top:10px;">' +
+                '<div style="font-weight:bold;margin:10px 0 0 0;">📋 خطة الاستصلاح (مبدئية):</div>' +
+                '<div style="font-size:12px;white-space:pre-wrap;">1. التسوية والتخطيط\n2. شبكة الري\n3. الإضافات الأولية (جبس + كمبوست)\n4. زراعة المحاصيل الكاسرة للملوحة</div>' +
                 '</div>';
         }
     }
